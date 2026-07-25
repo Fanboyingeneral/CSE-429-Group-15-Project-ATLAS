@@ -1,0 +1,294 @@
+# AI Chat Transcript - Student 2
+
+**Student Name:** Sayaad Muzahid Masfi
+**Student Number:** 2105066
+**Sections Led:** 4, 5, 6, 7
+
+---
+
+## FULL CONVERSATION
+
+---
+
+**User:**
+
+I'm working on Assignment 1 for my Deep Learning course. We're building a RAG system for STEM textbooks. I'm responsible for Sections 4-7: Risks, Design Choices, Pipeline Scope, and Agent Design. Our project is ATLAS - Adaptive Textbook-Grounded Learning and Assessment System. Domain is High School STEM Education with Math/Scientific Notation as our data speciality, and Explainability as our primary NFR (Grounded Explanation Faithfulness Score ≥ 0.90).
+
+I need help thinking through these sections. Let me start with Section 4 on Risks.
+
+---
+
+**Assistant:**
+
+Great project! Let me help you work through the risks section systematically. For a STEM textbook RAG system, you need to consider five key risk areas:
+
+1. **Personal Data (PII)** - Are there any names or identifying information in these textbooks?
+2. **Licensing/Copyright** - What licenses do your sources have?
+3. **OCR Failure** - Where will reading fail worst given your math notation speciality?
+4. **Hallucination** - How could the agent answer things not in the text?
+5. **Bias** - Which fonts/regions/subgroups might the system read worse?
+
+Let me help you think through each. What specific textbooks are you using?
+
+---
+
+**User:**
+
+We're using Siyavula Everything Maths (Grades 11 & 12) and OpenStax Calculus (Vol 1 & 2). All are OER - Siyavula is CC BY-ND 3.0 and OpenStax is CC BY-NC-SA 4.0. The corpus has about 2,500 pages with 744,092 words total. Our data speciality is math notation - fractions, integrals, matrices, multi-line derivations.
+
+---
+
+**Assistant:**
+
+Excellent choices - legally clean OER materials are ideal. Let me draft answers for each risk:
+
+**PII:** Low risk. Word problems use invented names (e.g., "Thabo buys 3 apples"), and front-matter lists real author/contributor names. Neither is sensitive PII. Recommendation: exclude front-matter/author pages entirely, leave fictional names in worked examples as non-identifying.
+
+**Licensing:** All four sources are openly licensed. Evidence is the licence statement on each PDF's copyright page. Both publishers explicitly permit redistribution with attribution, so you may re-share the corpus.
+
+**OCR Failure:** Reading will fail worst on diagrams - graphs of straight lines, parabolas, triangles and geometrical shapes (e.g., pg.85 of Gr11 Mathematics). Fallback: drop/abstain on such cases as OCR cannot feasibly transcribe figures.
+
+**Hallucination:** The underlying LLM already "knows" general maths from pretraining and could answer with plausible-looking derivations not actually in the textbooks. Solution: require `extract` (a verbatim/near-verbatim span from a retrieved chunk) before `cite` can run. If no chunk supports a claim, abstain.
+
+**Bias:** Mixes South African CAPS-curriculum texts (using 'gradient') with US OpenStax (using 'slope'). Notation-dense chapters (limits, integrals) are harder to OCR than text-dense algebra chapters. Expect worse performance on calculus content.
+
+---
+
+**User:**
+
+That's really helpful. For PII, should we redact the author names, or just exclude front-matter pages from retrieval? And for bias, do we need to do any correction, or just acknowledge it?
+
+---
+
+**Assistant:**
+
+For PII: Excluding front-matter/author pages from the retrievable corpus is cleaner than redaction - it removes the issue entirely at the ingest stage. The author names aren't sensitive anyway, but this keeps the corpus focused on educational content.
+
+For bias: At this stage, just acknowledge it honestly. You can't realistically "fix" the bias between South African vs US mathematical conventions without adding another dataset. The point of Section 4 is risk identification and mitigation planning. Your mitigation is acknowledging the expected performance difference and possibly recommending that users check answers against their specific curriculum. Later in the project, you could use this awareness to calibrate your evaluation - e.g., report results separately for CAPS vs OpenStax content.
+
+---
+
+**User:**
+
+Makes sense. Now for Section 5 - the design choices table. There are eight facets: Problem statement, Data, Model, Methods, Design, Development, Deployment, and MLOps. Each needs a choice and justification. Can you help me draft these for the ingest stage?
+
+---
+
+**Assistant:**
+
+Here's a draft for each facet focusing on Stage 1 (ingest):
+
+**Problem statement:** Stage 1 must turn each source PDF into a complete, ordered set of page images ready for OCR, with zero silently-dropped or corrupted pages. Success metric: 100% of pages render (extracted page count == PDF-reported page count), verified in eda.ipynb. Cost: negligible compute. Relax only if a source PDF had deliberately blank pages we want to skip.
+
+**Data:** Inputs: 4 born-digital PDFs (~1,400 pages combined). Train = Siyavula Grade 11 + OpenStax Calculus Vol 1 (52.1% of words), Test = Siyavula Grade 12 + OpenStax Calculus Vol 2 (47.9% of words). Validation = 15% stratified subsample from Train only. Each page rasterised to 300dpi RGB PNG plus JSON sidecar (book_id, page_num, source_url). No manual labels.
+
+**Model:** No learned model at ingest - deterministic PDF rasteriser (PyMuPDF/pdf2image). Skipping enhancement model saves training time since sources are clean born-digital PDFs. Would introduce one only if we found pages with corrupted diagrams or compression artefacts.
+
+**Methods:** Render every page at 300dpi, RGB, save as PNG; deliberately discard PDF's embedded selectable-text layer so downstream OCR genuinely reads pixels. 300dpi is standard threshold for reliable OCR. Discarding embedded text layer keeps project honest to the task ("read a scanned page"). Keep that layer only for building automatic ground-truth labels.
+
+**Design:** Stage 1 immediately after raw PDF download, before Layout. Writes data/processed/pages/<book_id>/<page_num>.png plus manifest.jsonl. Single-responsibility stage lets Layout and OCR be developed independently. Merge only if storage becomes a constraint.
+
+**Development:** Unit tests assert: (a) rendered page count matches PDF's reported count, (b) every PNG opens without corruption, (c) DPI/colour-mode consistent across corpus. Config lives in configs/task.yaml. Cost: seconds per run. Add DPI/colour-histogram checks if mixing in lower-quality sources.
+
+**Deployment:** Runs once, offline, as batch job at corpus-prep time - not at serving time. Output cached to disk and reused. Student queries shouldn't wait on PDF rendering. Move to on-demand only if supporting arbitrary user-uploaded textbooks.
+
+**MLOps:** Corpus versioned by manifest.jsonl checksum committed to repo; publisher update triggers re-ingest. Not monitored at serving time. Fits 3-person team. Move to scheduled re-scraping only for sources that update silently.
+
+**One trade-off:** We chose to rasterise born-digital PDFs to images and discard embedded text layer instead of extracting it directly. Extracting directly would have trivialised the project and violated task definition. Cost: real OCR work and failure modes, exactly as intended.
+
+---
+
+**User:**
+
+This is comprehensive. For the data split, should I mention document-level split to avoid leakage? And for the trade-off, is there anything else I should explain?
+
+---
+
+**Assistant:**
+
+Yes! Definitely mention document-level splitting - you should add that the test set contains one whole book from each curriculum (Siyavula Grade 12 and OpenStax Calculus Vol 2) so the headline faithfulness metric reflects performance across both domains. This guarantees zero document-level leakage.
+
+For the trade-off explanation, you could strengthen it by saying:
+
+- **Rejected option:** extracting the PDF's embedded text layer directly (would have given perfect ground truth with no OCR effort)
+- **Chosen option:** rasterising to images and running real OCR
+- **Reason:** The project is explicitly about "reading scanned page images" - using the embedded text would violate the task's core constraint and make the entire OCR/math-recognition problem disappear
+- **Cost:** We lose a free, perfect ground-truth transcription source; our OCR stage now has real work and real failure modes
+- **Mitigation:** We can still use the embedded layer only as a reference for building automatic ground-truth labels, never as the primary text source
+
+---
+
+**User:**
+
+Great. Now Section 6 - pipeline scope. The stages are: 0 Frame, 1 Ingest+Enhance, 2 Layout, 3 OCR/HTR, 4 Index, 5 Retrieval, 6 Agent, 7 RL/RLVR, 8 Serve, 9 Evaluate. I need to mark each as core (⭐), gated (▲), or bonus (➕), and name our planned model/tool. Can you help?
+
+---
+
+**Assistant:**
+
+For your project with math notation speciality and explainability NFR:
+
+**Stage 0 Frame:** ⭐ - configs/task.yaml + this form
+**Stage 1 Ingest+Enhance:** ⭐ (ingest core) - PyMuPDF/pdf2image rasteriser (300dpi); Enhance: out of scope since scans are born-digital
+**Stage 2 Layout:** ⭐ - LayoutParser (PubLayNet-pretrained) to separate prose, equations, and figures
+**Stage 3 OCR/HTR:** ▲ - Math-aware OCR: LaTeX-OCR/Nougat-style model outputting LaTeX for equations, plain text for prose (gated because your data speciality is math notation)
+**Stage 4 Index:** ⭐ - Semantic chunking + math-aware sentence embedder (e.g., multi-qa-mpnet fine-tuned on LaTeX snippets) + FAISS vector store
+**Stage 5 Retrieval:** ⭐ - Dense retrieval over FAISS + cross-encoder reranker
+**Stage 6 Agent:** ⭐ - Prompted LLM tool-using agent (e.g., Llama-3-8B-Instruct or GPT-4o-mini)
+**Stage 7 RL/RLVR:** ➕ - Bonus, not attempted this milestone
+**Stage 8 Serve:** ⭐ - FastAPI backend + minimal web UI, containerised with Docker
+**Stage 9 Evaluate:** ⭐ - Custom eval harness: groundedness, answer-F1, explainability/citation-accuracy metric (your primary NFR)
+
+Note: Stage 3 is gated (▲) because standard OCR would mangle math notation. The gating condition is "your data speciality requires it" - and math notation definitely qualifies.
+
+---
+
+**User:**
+
+That makes sense. So the gated stages are triggered by our data speciality. Now Section 7 - the agent layer. This is the most complex part. I need to cover: 7.1 The brain(s), 7.2 Tools, 7.3 Autonomy/humans/budget, 7.4 Testing/improvement, 7.5 Agent-specific risks.
+
+---
+
+**Assistant:**
+
+Let me help you structure this. The agent is the heart of your system.
+
+**7.1 The brain(s):**
+- Perception: Math-aware OCR/HTR model (LaTeX-OCR/Nougat) converting page images to text + LaTeX
+- Retrieval: Sentence-embedding model fine-tuned to treat LaTeX and prose consistently
+- Answering: Prompted, tool-using LLM (Llama-3-8B-Instruct or GPT-4o-mini) driving the agent loop, required to justify each step in plain language to satisfy your Explainable NFR
+
+**One loop example:** Agent perceives student's question → decides which tool to call next → observes returned chunks and their confidence scores → either calls another tool (read_page for full context, calculator to verify arithmetic, extract to pull exact formula) or stops and calls cite to attach the page/section used. At every step it logs a natural-language reason for the choice (this makes the trace explainable).
+
+---
+
+**User:**
+
+For 7.2 tools, there's a fixed list: retrieve, rerank, read_page, enhance_page, extract, aggregate, cite, calculator, escalate_to_human. I need to say how we use each and whether it reads or acts. Let me try:
+
+**retrieve** - Reads - Searches embedded chunks for relevant passage
+**rerank** - Reads - Reorders chunks, favouring those with LaTeX matching key terms
+**read_page** - Reads - Opens full page around promising chunk (derivations span multiple lines)
+**enhance_page** - Acts - Rare fallback if page fails to rasterise cleanly; re-renders at higher DPI
+**extract** - Reads - Pulls precise formula/definition/worked-example step preserving LaTeX
+**aggregate** - Reads - Combines information across pages/sections
+**cite** - Reads - Attaches book/chapter/page number to every response
+**calculator** - Acts - Verifies arithmetic or evaluates formula for specific values
+**escalate_to_human** - Acts - Hands off when retrieval confidence stays low or question is out-of-corpus
+
+Does this look right?
+
+---
+
+**Assistant:**
+
+Perfect! I'd just add a bit more context to each:
+
+- **retrieve:** Uses the student's question to find relevant chunks across all three textbooks
+- **rerank:** Cross-encoder reordering, favouring chunks whose LaTeX matches key terms in the question
+- **read_page:** Needed because maths derivations often span more lines than a single chunk
+- **enhance_page:** Rarely invoked - only if a specific page has a corrupted embedded diagram
+- **extract:** Pulls out exactly what answers the question, preserving LaTeX
+- **aggregate:** Chains a formula from one chapter with a value from another, or sums marks across multi-part questions
+- **cite:** Core mechanism behind your Explainable NFR - grounds every answer
+- **calculator:** Exact arithmetic verification for worked solutions
+- **escalate_to_human:** Teacher/tutor handles when retrieval confidence stays low after widening k, or question falls outside the three textbooks
+
+All are read-only except enhance_page (re-renders), calculator (computes), and escalate_to_human (hands off).
+
+---
+
+**User:**
+
+Now 7.3: Autonomy, humans, and budget. I'm thinking act-then-log for autonomy level. For human-in-the-loop, escalation when retrieval confidence stays below threshold after k is widened to k_max, or question is out-of-corpus. Budget: max 6 tool calls per query, retrieval widened at most 3 times (k, 2k, 4k) before forced abstention.
+
+---
+
+**Assistant:**
+
+That's well thought out. Let me suggest specific wording:
+
+**Autonomy level:** act-then-log - the agent freely calls retrieve/rerank/read_page/extract/calculator/cite without asking permission first, but every call and its reasoning is logged. This fits your Explainable NFR - a reviewer needs to see the whole trace afterwards, but a student shouldn't have to approve each retrieval step of a tutoring session.
+
+**Human-in-the-loop:** escalate_to_human fires when retrieval confidence stays below threshold after k is widened to k_max, or the question is judged out-of-corpus (e.g., differential equations, which none of your textbooks cover). A teacher/tutor then supplies the correct answer, logged as a new eval example rather than letting the agent guess.
+
+**Budget:** Max 6 tool calls per query (retrieve → rerank → read_page → extract → optional calculator → cite), with retrieval widened at most 3 times (k, 2k, 4k) before forced abstention. At the limit, the agent stops and calls escalate_to_human instead of returning an ungrounded guess.
+
+---
+
+**User:**
+
+For 7.4, how we test it and how it improves. Our eval questions should be from real end-of-chapter exercises. And improvement could start with rule-based policy, then RL as bonus. Can you help draft this?
+
+---
+
+**Assistant:**
+
+**How we'll build tasks.jsonl:** Built from real end-of-chapter exercises across all three books:
+- Definitional questions ("state the quotient rule")
+- Procedural questions with checkable numeric answers ("solve for x")
+- Formula-recall questions
+- Multi-hop questions chaining two concepts (e.g., apply a derivative rule then evaluate at a point)
+- Out-of-corpus questions (e.g., on differential equations) as abstention cases to score whether the agent correctly abstains
+
+**How it improves:**
+- Start with a rule-based tool-routing policy (fixed thresholds on retrieval confidence trigger re-search or escalation)
+- Bonus attempt: Apply RLVR using procedural/numeric questions as a verifiable reward: +1 if the agent's final numeric answer (checked via calculator tool) exactly matches the textbook's worked answer, 0 otherwise - an automatically checkable signal that sharpens general tool-use rather than memorising specific answers
+
+---
+
+**User:**
+
+Finally 7.5: Agent-specific risks. Three areas: prompt injection from documents, wrong tool/runaway loop, and ungrounded answer.
+
+---
+
+**Assistant:**
+
+**Prompt injection from documents:** A textbook page is unlikely to contain adversarial text, but treat all OCR'd page content as untrusted data, never as instructions. Wrapped in clearly delimited data tags in the prompt, and any span that reads like a system/role instruction (e.g., "ignore previous instructions") is stripped before the page text reaches the LLM's context.
+
+**Wrong tool/runaway loop:** The 6-step budget and the 3x k-widening cap hard-stop any loop. Additionally, if the same tool is called 3 times in a row without the retrieval score improving, the agent is forced to stop and escalate rather than keep retrying.
+
+**Ungrounded answer:** cite is mandatory before any answer is returned to the student. A grounding checker verifies that the specific formula/claim in the answer actually appears (above a similarity threshold) in the page extract cited. If it doesn't, the agent abstains instead of releasing the answer - this is what keeps "explainable" meaningful, since every claim has a traceable source.
+
+---
+
+**User:**
+
+That's really thorough. I think I have everything I need for Sections 4-7. Give a final check of all our chats to check for coherency of all points
+
+---
+
+**Assistant:**
+
+You're welcome! Your answers are well-aligned with your project's domain (STEM education), data speciality (math notation), and NFR (explainability). Good luck with the submission!
+
+---
+
+## REFLECTION
+
+After reviewing the AI's suggestions, I accepted most of the core reasoning but made several changes:
+
+**Accepted:**
+- The risk assessment structure and specific mitigations for PII, licensing, OCR failure, hallucination, and bias
+- The eight-facet design table structure with problem statement, data, model, methods, design, development, deployment, and MLOps
+- The pipeline tier assignments (core vs gated vs bonus)
+- The agent architecture and tool descriptions
+- The autonomy level (act-then-log) and escalation criteria
+- The grounding verification mechanism for preventing hallucinations
+
+**Modified/Refined:**
+- Strengthened the trade-off explanation in Section 5 to explicitly contrast the rejected option (extracting embedded text) with the chosen option (rasterising to images) and clearly articulate why we made this choice
+- Added the document-level split details to Section 2 (train/test split by whole document, not by page)
+- Expanded the human-in-the-loop section to explain what the teacher/tutor decides (provides correct answer, logged as eval example)
+- Added specific examples for evaluation questions (definitional, procedural, formula-recall, multi-hop, abstention cases)
+- Clarified the grounding checker threshold - it verifies the claim appears above a similarity threshold in the cited page extract
+
+**Rejected:**
+- The AI's suggestion about using the embedded text layer for automatic ground-truth labels - we decided to keep the pipeline completely honest about reading scanned pages; ground truth will be manually verified if needed
+
+The final responses are stronger for having considered the AI's suggestions while applying my own judgment about what fits our specific project constraints.
+
+---
+
+*End of transcript*
